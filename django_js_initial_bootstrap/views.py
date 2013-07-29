@@ -1,5 +1,6 @@
 import json
 from django.utils.safestring import mark_safe
+from rest_framework.serializers import ModelSerializer
 
 
 class BaseBootstrapManager(object):
@@ -16,16 +17,56 @@ class BaseBootstrapManager(object):
         return mark_safe("JSON.parse('%s')" % json_string)
 
 
-class ListJsonBootstrapMixin(BaseBootstrapManager):
+class ListBasicBootstrapMixin(BaseBootstrapManager):
     bootstrapped_context_object = 'bootstrapped'
 
     def get_context_data(self, **kwargs):
-        cd = super(ListJsonBootstrapMixin, self).get_context_data(**kwargs)
+        cd = super(ListBasicBootstrapMixin, self).get_context_data(**kwargs)
         cd[self.bootstrapped_context_object] = self.json_parse_code(json.dumps(self.prepare_queryset(cd['object_list'])))
         return cd
 
     def prepare_queryset(self, qs):
         return list(qs.values())
+
+
+class ListSerializerBootstrapMixin(ListBasicBootstrapMixin):
+    serializer_class = None
+    model = None
+
+    def prepare_queryset(self, qs):
+        serializer = self.get_serializer(qs)
+        return serializer.data
+
+    def get_serializer_context(self):
+        """
+        Extra context provided to the serializer class.
+        """
+        return {
+            'request': self.request,
+            'format': 'json',
+            'view': self
+        }
+
+    def get_serializer(self, qs):
+        serializer_class = self.get_serializer_class()
+        context = self.get_serializer_context()
+        return serializer_class(qs, many=True, context=context)
+
+    def get_serializer_class(self):
+        serializer_class = self.serializer_class
+        if serializer_class is not None:
+            return serializer_class
+
+        assert self.model is not None, \
+            "'%s' should either include a 'serializer_class' attribute, " \
+            "or use the 'model' attribute as a shortcut for " \
+            "automatically generating a serializer class." \
+            % self.__class__.__name__
+
+        class DefaultSerializer(ModelSerializer):
+            class Meta:
+                model = self.model
+        return DefaultSerializer
 
 
 class DetailJsonBootstrapMixin(BaseBootstrapManager):
